@@ -1,6 +1,9 @@
 # Use Python 3.12 slim image
 FROM python:3.12-slim
 
+# Verify Python version at build time
+RUN python --version
+
 # Set working directory
 WORKDIR /app
 
