@@ -11,3 +11,4 @@ pandas==2.2.0
 numpy==1.26.3
 loguru==0.7.2
 psycopg2-binary==2.9.9
+yfinance>=0.2.40

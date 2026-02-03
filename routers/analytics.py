@@ -68,17 +68,23 @@ def get_indicators(
 def compare_stocks(
     symbols: str = Query(..., description="Comma-separated stock symbols (e.g., AAPL,MSFT,GOOGL)"),
     exchange: str = Query(..., description="Exchange code"),
+    source: str = Query("google", enum=["google", "yahoo", "auto"], description="Data source"),
+    auto_fallback: bool = Query(True, description="Automatically try alternate source on failure"),
     db: Session = Depends(get_db)
 ):
     """
     Compare multiple stocks side-by-side
     
     Returns current price, change, and basic metrics for each stock
+    
+    Parameters:
+    - source: "google" (default), "yahoo", or "auto"
+    - auto_fallback: If True, automatically tries alternate source on failure
     """
     from services.scraper_service import scraper_service
     
     symbol_list = [s.strip().upper() for s in symbols.split(",")]
-    logger.info(f"Compare request: {symbol_list} on {exchange}")
+    logger.info(f"Compare request: {symbol_list} on {exchange} (source: {source})")
     
     if len(symbol_list) > 10:
         raise HTTPException(status_code=400, detail="Maximum 10 stocks for comparison")
@@ -87,13 +93,14 @@ def compare_stocks(
     
     for symbol in symbol_list:
         try:
-            quote = scraper_service.fetch_and_store_quote(db, symbol, exchange)
+            quote = scraper_service.fetch_and_store_quote(db, symbol, exchange, source, auto_fallback)
             if "error" not in quote:
                 results[symbol] = {
                     "price": quote.get("price"),
                     "change": quote.get("change"),
                     "change_percent": quote.get("change_percent"),
-                    "volume": quote.get("volume")
+                    "volume": quote.get("volume"),
+                    "source": quote.get("source")
                 }
         except Exception as e:
             logger.error(f"Error fetching {symbol}: {e}")

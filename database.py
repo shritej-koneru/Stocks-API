@@ -40,6 +40,7 @@ class Stock(Base):
     market_cap = Column(Float)
     currency = Column(String(10), default="USD")
     country = Column(String(50))
+    last_source = Column(String(10))  # Track last data source used ("google" or "yahoo")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -75,6 +76,7 @@ class PriceHistory(Base):
     change = Column(Float)  # Absolute price change
     change_percent = Column(Float)  # Percentage change
     previous_close = Column(Float)
+    data_source = Column(String(10), default="google")  # Track data source ("google" or "yahoo")
     
     created_at = Column(DateTime, default=datetime.utcnow)
     

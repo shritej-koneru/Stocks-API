@@ -25,11 +25,16 @@ class Config:
     
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", 60))
+    GOOGLE_RATE_LIMIT = int(os.getenv("GOOGLE_RATE_LIMIT", 40))  # requests per minute for Google
+    YAHOO_RATE_LIMIT = int(os.getenv("YAHOO_RATE_LIMIT", 20))  # requests per minute for Yahoo
     
     # Scraping
     SCRAPER_TIMEOUT = int(os.getenv("SCRAPER_TIMEOUT", 10))
     SCRAPER_MAX_RETRIES = int(os.getenv("SCRAPER_MAX_RETRIES", 3))
     SCRAPER_BACKOFF_FACTOR = int(os.getenv("SCRAPER_BACKOFF_FACTOR", 2))
+    DEFAULT_DATA_SOURCE = os.getenv("DEFAULT_DATA_SOURCE", "google")  # "google" or "yahoo"
+    ENABLE_AUTO_FALLBACK = os.getenv("ENABLE_AUTO_FALLBACK", "true").lower() == "true"
+    LAZY_LOAD_YFINANCE = os.getenv("LAZY_LOAD_YFINANCE", "true").lower() == "true"
     
     # Background Tasks
     SCRAPER_INTERVAL_MINUTES = int(os.getenv("SCRAPER_INTERVAL_MINUTES", 15))

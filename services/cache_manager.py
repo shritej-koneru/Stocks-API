@@ -49,17 +49,17 @@ class CacheManager:
         key_string = json.dumps(key_data, sort_keys=True)
         return hashlib.md5(key_string.encode()).hexdigest()
     
-    def get_current_price(self, symbol: str, exchange: str) -> Optional[dict]:
-        """Get cached current price"""
-        key = f"{symbol}:{exchange}"
+    def get_current_price(self, symbol: str, exchange: str, source: str = "google") -> Optional[dict]:
+        """Get cached current price (with source)"""
+        key = f"{source}:{symbol}:{exchange}"
         value = self.current_price_cache.get(key)
         if value:
             logger.debug(f"Cache HIT: current_price for {key}")
         return value
     
-    def set_current_price(self, symbol: str, exchange: str, data: dict):
-        """Cache current price data"""
-        key = f"{symbol}:{exchange}"
+    def set_current_price(self, symbol: str, exchange: str, data: dict, source: str = "google"):
+        """Cache current price data (with source)"""
+        key = f"{source}:{symbol}:{exchange}"
         self.current_price_cache[key] = data
         logger.debug(f"Cache SET: current_price for {key}")
     
