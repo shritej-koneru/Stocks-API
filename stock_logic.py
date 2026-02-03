@@ -150,53 +150,132 @@ class GoogleFinanceScraper:
             logger.error(f"Could not extract price for {symbol}:{exchange}")
             return {"error": "Invalid ticker or exchange", "symbol": symbol, "exchange": exchange}
         
-        # Extract change and change percent
-        change_class = "JwB6zf"  # Change amount
-        change_percent_class = "JwB6zf"  # Also contains percentage
-        
-        # Get all change elements (usually shows both absolute and percentage)
-        change_elements = soup.find_all(class_=change_class)
+        # Extract change and change percent with multiple fallback patterns
         change = None
         change_percent = None
         
+        # Pattern 1: Try standard change class
+        change_elements = soup.find_all(class_="JwB6zf")
         for elem in change_elements:
             text = elem.text.strip()
             if "%" in text:
                 change_percent = self._parse_percentage(text)
-            elif "$" in text or "₹" in text or any(c.isdigit() for c in text):
+            elif "$" in text or "₹" in text or "€" in text or "£" in text:
                 change = self._parse_price(text)
+            elif not change_percent and any(c.isdigit() for c in text):
+                # Try parsing as number (might be change without symbol)
+                try:
+                    parsed = self._parse_price(text)
+                    if parsed and abs(parsed) < price * 0.5:  # Sanity check: change < 50% of price
+                        change = parsed
+                except:
+                    pass
         
-        # Extract previous close
-        # Look for "Previous close" label and get the value
+        # Pattern 2: Look in data attributes or nearby elements
+        if not change or not change_percent:
+            try:
+                # Try to find elements with specific data attributes
+                price_section = soup.find("div", attrs={"data-last-price": True})
+                if price_section:
+                    change_elem = price_section.find_next("div", class_="JwB6zf")
+                    if change_elem and not change:
+                        change = self._parse_price(change_elem.text)
+            except Exception as e:
+                logger.debug(f"Fallback pattern 2 failed: {e}")
+        
+        # Pattern 3: Extract from header area (where price is displayed)
+        if not change_percent:
+            try:
+                # Look for percentage near the main price
+                header_section = soup.find("div", class_="YMlKec fxKbKc")
+                if header_section:
+                    parent = header_section.find_parent()
+                    if parent:
+                        percent_elems = parent.find_all(string=lambda text: text and "%" in str(text))
+                        for elem in percent_elems:
+                            parsed = self._parse_percentage(str(elem))
+                            if parsed is not None:
+                                change_percent = parsed
+                                break
+            except Exception as e:
+                logger.debug(f"Fallback pattern 3 failed: {e}")
+        
+        # Extract previous close with multiple patterns
         previous_close = None
+        
+        # Pattern 1: Look for "Previous close" label
         try:
             all_divs = soup.find_all("div", class_="P6K39c")
             for div in all_divs:
-                if "Previous close" in div.text or "Prev close" in div.text:
-                    # Get the next sibling or nearby element with the value
+                text = div.text.lower()
+                if "previous close" in text or "prev close" in text or "prev. close" in text:
+                    # Try next sibling with price class
                     value_div = div.find_next("div", class_="YMlKec fxKbKc")
                     if value_div:
                         previous_close = self._parse_price(value_div.text)
-                    break
+                        break
+                    # Try parent's next sibling
+                    parent = div.find_parent()
+                    if parent:
+                        next_div = parent.find_next_sibling()
+                        if next_div:
+                            previous_close = self._parse_price(next_div.text)
+                            break
         except Exception as e:
-            logger.warning(f"Could not extract previous close: {e}")
+            logger.debug(f"Previous close pattern 1 failed: {e}")
         
-        # Calculate previous close from current price and change if not found
-        if previous_close is None and price and change:
+        # Pattern 2: Calculate from price and change
+        if previous_close is None and price and change is not None:
             previous_close = price - change
+            logger.debug(f"Calculated previous close from price-change: {previous_close}")
         
-        # Extract volume
+        # Pattern 3: Calculate from price and change_percent
+        if previous_close is None and price and change_percent is not None:
+            # previous_close = price / (1 + change_percent/100)
+            previous_close = price / (1 + (change_percent / 100))
+            logger.debug(f"Calculated previous close from percentage: {previous_close}")
+        
+        # Extract volume with multiple patterns
         volume = None
+        
+        # Pattern 1: Standard volume label search
         try:
             all_divs = soup.find_all("div", class_="P6K39c")
             for div in all_divs:
-                if "Volume" in div.text:
+                text = div.text.lower()
+                if "volume" in text and "avg" not in text:  # Avoid "Avg volume"
                     value_div = div.find_next("div", class_="YMlKec fxKbKc")
                     if value_div:
                         volume = self._parse_volume(value_div.text)
-                    break
+                        break
+                    # Try parent's next sibling
+                    parent = div.find_parent()
+                    if parent:
+                        next_div = parent.find_next_sibling()
+                        if next_div:
+                            volume = self._parse_volume(next_div.text)
+                            break
         except Exception as e:
-            logger.warning(f"Could not extract volume: {e}")
+            logger.debug(f"Volume pattern 1 failed: {e}")
+        
+        # Pattern 2: Look for volume in table/grid structure
+        if not volume:
+            try:
+                # Some pages show data in a grid
+                all_text_nodes = soup.find_all(string=lambda text: text and "volume" in text.lower())
+                for node in all_text_nodes:
+                    parent = node.find_parent()
+                    if parent:
+                        # Look at siblings
+                        for sibling in parent.find_next_siblings(limit=3):
+                            vol = self._parse_volume(sibling.text)
+                            if vol:
+                                volume = vol
+                                break
+                    if volume:
+                        break
+            except Exception as e:
+                logger.debug(f"Volume pattern 2 failed: {e}")
         
         # Get timestamp (current UTC time)
         from datetime import datetime
@@ -239,8 +318,10 @@ class GoogleFinanceScraper:
         
         soup = BeautifulSoup(response.text, "html.parser")
         
-        # Extract company name
+        # Extract company name with multiple patterns
         name = None
+        
+        # Pattern 1: Standard name div
         try:
             name_div = soup.find("div", class_="zzDege")
             if name_div:
@@ -248,23 +329,115 @@ class GoogleFinanceScraper:
         except Exception:
             pass
         
-        # Extract sector/industry from description or metadata
+        # Pattern 2: Try h1 or title elements
+        if not name:
+            try:
+                h1 = soup.find("h1")
+                if h1:
+                    name = h1.text.strip()
+            except Exception:
+                pass
+        
+        # Pattern 3: Try meta tags
+        if not name:
+            try:
+                meta_title = soup.find("meta", property="og:title")
+                if meta_title and meta_title.get("content"):
+                    name = meta_title["content"].strip()
+                    # Clean up if it has extra text like " Stock Price"
+                    if " - " in name:
+                        name = name.split(" - ")[0]
+            except Exception:
+                pass
+        
+        # Extract sector/industry with multiple patterns
         sector = None
         industry = None
         
-        # Extract market cap
-        market_cap = None
+        # Pattern 1: Look for sector/industry labels
         try:
             all_divs = soup.find_all("div", class_="P6K39c")
             for div in all_divs:
-                if "Market cap" in div.text or "Mkt cap" in div.text:
+                text = div.text.lower()
+                if "sector" in text:
+                    value_div = div.find_next("div", class_="YMlKec fxKbKc")
+                    if value_div:
+                        sector = value_div.text.strip()
+                elif "industry" in text:
+                    value_div = div.find_next("div", class_="YMlKec fxKbKc")
+                    if value_div:
+                        industry = value_div.text.strip()
+        except Exception as e:
+            logger.debug(f"Sector/industry extraction failed: {e}")
+        
+        # Pattern 2: Try to find in description or about section
+        if not sector:
+            try:
+                # Look for "about" section which sometimes contains sector info
+                about_section = soup.find("div", class_="bLLb2d")
+                if about_section:
+                    text = about_section.text
+                    # Common patterns like "Technology sector" or "operates in Healthcare"
+                    import re
+                    sector_match = re.search(r'(Technology|Healthcare|Finance|Energy|Consumer|Industrial|Materials|Utilities|Real Estate|Communication)', text, re.IGNORECASE)
+                    if sector_match:
+                        sector = sector_match.group(1)
+            except Exception as e:
+                logger.debug(f"Sector pattern 2 failed: {e}")
+        
+        # Extract market cap with multiple patterns
+        market_cap = None
+        
+        # Pattern 1: Standard market cap label
+        try:
+            all_divs = soup.find_all("div", class_="P6K39c")
+            for div in all_divs:
+                text = div.text.lower()
+                if "market cap" in text or "mkt cap" in text or "market capitalization" in text:
                     value_div = div.find_next("div", class_="YMlKec fxKbKc")
                     if value_div:
                         market_cap_str = value_div.text
-                        market_cap = self._parse_volume(market_cap_str)  # Uses same parser as volume
-                    break
+                        market_cap = self._parse_volume(market_cap_str)
+                        break
+                    # Try parent's next sibling
+                    parent = div.find_parent()
+                    if parent:
+                        next_div = parent.find_next_sibling()
+                        if next_div:
+                            market_cap = self._parse_volume(next_div.text)
+                            break
         except Exception as e:
-            logger.warning(f"Could not extract market cap: {e}")
+            logger.debug(f"Market cap pattern 1 failed: {e}")
+        
+        # Pattern 2: Look in data attributes or structured data
+        if not market_cap:
+            try:
+                # Try to find in any element containing "market cap"
+                cap_elements = soup.find_all(string=lambda text: text and "market cap" in text.lower())
+                for elem in cap_elements:
+                    parent = elem.find_parent()
+                    if parent:
+                        # Look for siblings with number values
+                        for sibling in parent.find_next_siblings(limit=2):
+                            parsed = self._parse_volume(sibling.text)
+                            if parsed and parsed > 1000000:  # At least 1M market cap
+                                market_cap = parsed
+                                break
+                    if market_cap:
+                        break
+            except Exception as e:
+                logger.debug(f"Market cap pattern 2 failed: {e}")
+        
+        # Detect currency based on exchange or symbol
+        currency = "USD"  # Default
+        if exchange.upper() in ["NSE", "BSE"]:
+            currency = "INR"
+        elif exchange.upper() in ["LSE", "LON"]:
+            currency = "GBP"
+        elif exchange.upper() in ["FRA", "PAR", "AMS"]:
+            currency = "EUR"
+        elif exchange.upper() in ["JPX", "TSE"]:
+            currency = "JPY"
         
         result = {
             "symbol": symbol.upper(),
