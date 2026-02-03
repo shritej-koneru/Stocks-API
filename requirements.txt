@@ -3,3 +3,11 @@ uvicorn==0.40.0
 requests==2.31.0
 beautifulsoup4==4.14.3
 python-dotenv==1.0.0
+sqlalchemy==2.0.25
+alembic==1.13.1
+cachetools==5.3.2
+slowapi==0.1.9
+pandas==2.2.0
+numpy==1.26.3
+loguru==0.7.2
+psycopg2-binary==2.9.9
