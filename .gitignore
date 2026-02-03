@@ -9,4 +9,10 @@ venv/
 ENV/
 env/
 *.log
+logs/
 .DS_Store
+
+# Database
+*.db
+*.db-journal
+stock_data.db
