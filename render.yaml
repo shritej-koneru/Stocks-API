@@ -2,7 +2,6 @@ services:
   - type: web
     name: equialert-stock-api
     runtime: python
-    pythonVersion: "3.12"
     plan: free
     region: oregon
     buildCommand: pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
